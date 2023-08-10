@@ -1,8 +1,11 @@
 extern crate clap;
+extern crate prettytable;
 extern crate serde;
 extern crate serde_json;
 
+use chrono::{DateTime, Utc};
 use clap::{App, Arg, SubCommand};
+use prettytable::{Cell, Row, Table};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::process::Command;
@@ -11,6 +14,7 @@ use std::process::Command;
 struct Note {
     title: String,
     content: String,
+    date: DateTime<Utc>,
 }
 
 fn main() {
@@ -28,11 +32,17 @@ fn main() {
                         .index(1),
                 ),
         )
+        .subcommand(SubCommand::with_name("list").about("Lista as notas"))
         .get_matches();
 
-    if let Some(matches) = matches.subcommand_matches("new") {
-        let title = matches.value_of("TITLE").unwrap().to_string();
-        create_new_note(&title);
+    match matches.subcommand_name() {
+        Some("new") => {
+            let sub_matches = matches.subcommand_matches("new").unwrap();
+            let title = sub_matches.value_of("TITLE").unwrap().to_string();
+            create_new_note(&title);
+        }
+        Some("list") => list_notes(),
+        _ => println!("Comando não reconhecido."),
     }
 }
 
@@ -56,6 +66,7 @@ fn create_new_note(title: &str) {
     let note = Note {
         title: title.to_string(),
         content,
+        date: Utc::now(),
     };
 
     save_note(note);
@@ -75,4 +86,30 @@ fn save_note(note: Note) {
 
     let json = serde_json::to_string(&notes).expect("Erro ao serializar a nota");
     fs::write(notes_file, json).expect("Erro ao escrever no arquivo JSON");
+}
+
+fn list_notes() {
+    let notes_file = "notes/notes.json";
+
+    match fs::read_to_string(notes_file) {
+        Ok(data) => match serde_json::from_str::<Vec<Note>>(&data) {
+            Ok(notes) => {
+                let mut table = Table::new();
+                table.add_row(Row::new(vec![Cell::new("Título"), Cell::new("Data")]));
+                for note in &notes {
+                    table.add_row(Row::new(vec![
+                        Cell::new(&note.title),
+                        Cell::new(&note.date.format("%Y/%m/%d").to_string()),
+                    ]));
+                }
+                table.printstd();
+            }
+            Err(e) => {
+                println!("Erro ao desserializar as notas: {:?}", e);
+            }
+        },
+        Err(e) => {
+            println!("Erro ao ler o arquivo {}: {:?}", notes_file, e);
+        }
+    }
 }
