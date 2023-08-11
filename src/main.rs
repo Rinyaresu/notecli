@@ -5,10 +5,17 @@ extern crate serde_json;
 
 use chrono::{DateTime, Utc};
 use clap::{App, Arg, SubCommand};
-use prettytable::{Cell, Row, Table};
+use crossterm::event::{self, KeyCode, KeyEvent};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::process::Command;
+use tui::style::{Modifier, Style};
+use tui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use tui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    Terminal,
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Note {
@@ -88,22 +95,92 @@ fn save_note(note: Note) {
     fs::write(notes_file, json).expect("Erro ao escrever no arquivo JSON");
 }
 
+enum UserAction {
+    MoveUp,
+    MoveDown,
+    Quit,
+    None,
+}
+
+fn handle_user_input() -> UserAction {
+    if let Ok(event) = event::read() {
+        if let event::Event::Key(KeyEvent { code, .. }) = event {
+            match code {
+                KeyCode::Up | KeyCode::Char('k') => return UserAction::MoveUp,
+                KeyCode::Down | KeyCode::Char('j') => return UserAction::MoveDown,
+                KeyCode::Char('q') | KeyCode::Esc => return UserAction::Quit,
+                _ => return UserAction::None,
+            }
+        }
+    }
+    UserAction::None
+}
+
+fn display_tui(notes: Vec<Note>) {
+    let backend = CrosstermBackend::new(std::io::stdout());
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let _ = crossterm::terminal::enable_raw_mode();
+
+    terminal.clear().unwrap();
+
+    let mut selected_index = 0;
+
+    loop {
+        terminal
+            .draw(|f| {
+                let chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+                    .split(f.size());
+                let titles: Vec<ListItem> = notes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, note)| {
+                        if i == selected_index {
+                            ListItem::new(note.title.clone())
+                                .style(Style::default().add_modifier(Modifier::BOLD))
+                        } else {
+                            ListItem::new(note.title.clone())
+                        }
+                    })
+                    .collect();
+                let selected_content = &notes[selected_index].content;
+
+                let list =
+                    List::new(titles).block(Block::default().borders(Borders::ALL).title("Notas"));
+                let content = Paragraph::new(selected_content.as_str())
+                    .block(Block::default().borders(Borders::ALL).title("Conteúdo"));
+
+                f.render_widget(list, chunks[0]);
+                f.render_widget(content, chunks[1]);
+            })
+            .unwrap();
+
+        match handle_user_input() {
+            UserAction::MoveUp => {
+                if selected_index > 0 {
+                    selected_index -= 1;
+                }
+            }
+            UserAction::MoveDown => {
+                if selected_index < notes.len() - 1 {
+                    selected_index += 1;
+                }
+            }
+            UserAction::Quit => break,
+            UserAction::None => {}
+        }
+    }
+    let _ = crossterm::terminal::disable_raw_mode();
+}
+
 fn list_notes() {
     let notes_file = "notes/notes.json";
 
     match fs::read_to_string(notes_file) {
         Ok(data) => match serde_json::from_str::<Vec<Note>>(&data) {
-            Ok(notes) => {
-                let mut table = Table::new();
-                table.add_row(Row::new(vec![Cell::new("Título"), Cell::new("Data")]));
-                for note in &notes {
-                    table.add_row(Row::new(vec![
-                        Cell::new(&note.title),
-                        Cell::new(&note.date.format("%Y/%m/%d").to_string()),
-                    ]));
-                }
-                table.printstd();
-            }
+            Ok(notes) => display_tui(notes),
             Err(e) => {
                 println!("Erro ao desserializar as notas: {:?}", e);
             }
