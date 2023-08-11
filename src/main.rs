@@ -137,11 +137,13 @@ fn display_tui(notes: Vec<Note>) {
                     .iter()
                     .enumerate()
                     .map(|(i, note)| {
+                        let title_with_date =
+                            format!("{} - {}", note.title, note.date.format("%Y-%m-%d"));
                         if i == selected_index {
-                            ListItem::new(note.title.clone())
+                            ListItem::new(title_with_date)
                                 .style(Style::default().add_modifier(Modifier::BOLD))
                         } else {
-                            ListItem::new(note.title.clone())
+                            ListItem::new(title_with_date)
                         }
                     })
                     .collect();
