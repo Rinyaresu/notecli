@@ -27,7 +27,7 @@ struct Note {
 fn main() {
     let matches = App::new("Note Taking CLI")
         .version("0.1")
-        .author("Seu Nome")
+        .author("Rinyaresu")
         .about("CLI para tomar notas em Markdown")
         .subcommand(
             SubCommand::with_name("new")
@@ -63,7 +63,7 @@ fn ensure_notes_directory_exists() {
 fn create_new_note(title: &str) {
     ensure_notes_directory_exists();
     let file_path = format!("notes/{}.md", title);
-    let editor = std::env::var("EDITOR").unwrap_or("nano".to_string());
+    let editor = std::env::var("EDITOR").unwrap_or("vim".to_string());
     Command::new(editor)
         .arg(&file_path)
         .status()
@@ -99,6 +99,7 @@ enum UserAction {
     MoveUp,
     MoveDown,
     Quit,
+    Open,
     None,
 }
 
@@ -109,6 +110,7 @@ fn handle_user_input() -> UserAction {
                 KeyCode::Up | KeyCode::Char('k') => return UserAction::MoveUp,
                 KeyCode::Down | KeyCode::Char('j') => return UserAction::MoveDown,
                 KeyCode::Char('q') | KeyCode::Esc => return UserAction::Quit,
+                KeyCode::Enter => return UserAction::Open,
                 _ => return UserAction::None,
             }
         }
@@ -171,6 +173,14 @@ fn display_tui(notes: Vec<Note>) {
                 }
             }
             UserAction::Quit => break,
+            UserAction::Open => {
+                let note_path = format!("notes/{}.md", notes[selected_index].title);
+                let editor = std::env::var("EDITOR").unwrap_or("nano".to_string());
+                Command::new(editor)
+                    .arg(&note_path)
+                    .status()
+                    .expect("Falha ao abrir o editor");
+            }
             UserAction::None => {}
         }
     }
