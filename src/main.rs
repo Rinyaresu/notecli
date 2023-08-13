@@ -100,6 +100,7 @@ enum UserAction {
     MoveDown,
     Quit,
     Open,
+    Delete,
     None,
 }
 
@@ -111,6 +112,7 @@ fn handle_user_input() -> UserAction {
                 KeyCode::Down | KeyCode::Char('j') => return UserAction::MoveDown,
                 KeyCode::Char('q') | KeyCode::Esc => return UserAction::Quit,
                 KeyCode::Enter => return UserAction::Open,
+                KeyCode::Char('x') => return UserAction::Delete,
                 _ => return UserAction::None,
             }
         }
@@ -118,7 +120,7 @@ fn handle_user_input() -> UserAction {
     UserAction::None
 }
 
-fn display_tui(notes: Vec<Note>) {
+fn display_tui(mut notes: Vec<Note>) {
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut terminal = Terminal::new(backend).unwrap();
 
@@ -181,6 +183,14 @@ fn display_tui(notes: Vec<Note>) {
                     .status()
                     .expect("Falha ao abrir o editor");
             }
+
+            UserAction::Delete => {
+                delete_note(&mut notes, selected_index);
+                if selected_index >= notes.len() && selected_index > 0 {
+                    selected_index -= 1;
+                }
+                show_message(&mut terminal, "Nota deletada com sucesso!")
+            }
             UserAction::None => {}
         }
     }
@@ -200,5 +210,33 @@ fn list_notes() {
         Err(e) => {
             println!("Erro ao ler o arquivo {}: {:?}", notes_file, e);
         }
+    }
+}
+
+fn show_message(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, message: &str) {
+    terminal.clear().unwrap();
+    terminal
+        .draw(|f| {
+            let size = f.size();
+            let block = Paragraph::new(message).block(Block::default().borders(Borders::ALL));
+            f.render_widget(block, size);
+        })
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(1));
+}
+
+fn delete_note(notes: &mut Vec<Note>, index: usize) {
+    if index < notes.len() {
+        let note = &notes[index];
+        // Remover o arquivo físico
+        let path = format!("notes/{}.md", note.title);
+        fs::remove_file(path).expect("Falha ao deletar o arquivo da nota");
+
+        // Remover a nota do vetor
+        notes.remove(index);
+
+        let notes_file = "notes/notes.json";
+        let json = serde_json::to_string(&notes).expect("Erro ao serializar a nota");
+        fs::write(notes_file, json).expect("Erro ao escrever no arquivo JSON");
     }
 }
