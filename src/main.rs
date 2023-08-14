@@ -1,21 +1,18 @@
-extern crate clap;
-extern crate prettytable;
-extern crate serde;
-extern crate serde_json;
-
 use chrono::{DateTime, Utc};
 use clap::{App, Arg, SubCommand};
 use crossterm::event::{self, KeyCode, KeyEvent};
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::process::Command;
-use tui::style::{Modifier, Style};
-use tui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use std::{fs, process::Command};
 use tui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
     Terminal,
 };
+
+const NOTES_DIR: &str = "notes";
+const NOTES_JSON_FILE: &str = "notes/notes.json";
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Note {
@@ -54,7 +51,7 @@ fn main() {
 }
 
 fn ensure_notes_directory_exists() {
-    let path = std::path::Path::new("notes");
+    let path = std::path::Path::new(NOTES_DIR);
     if !path.exists() {
         fs::create_dir(path).expect("Erro ao criar o diretório 'notes'");
     }
@@ -81,18 +78,18 @@ fn create_new_note(title: &str) {
 
 fn save_note(note: Note) {
     ensure_notes_directory_exists();
-    let notes_file = "notes/notes.json";
-    let mut notes: Vec<Note> = Vec::new();
 
-    if fs::metadata(notes_file).is_ok() {
-        let data = fs::read_to_string(notes_file).expect("Erro ao ler o arquivo JSON");
-        notes = serde_json::from_str(&data).expect("Erro ao desserializar as notas");
-    }
+    let mut notes: Vec<Note> = if fs::read_to_string(NOTES_JSON_FILE).is_ok() {
+        let data = fs::read_to_string(NOTES_JSON_FILE).expect("Erro ao ler o arquivo JSON");
+        serde_json::from_str(&data).expect("Erro ao desserializar as notas")
+    } else {
+        Vec::new()
+    };
 
     notes.push(note);
 
     let json = serde_json::to_string(&notes).expect("Erro ao serializar a nota");
-    fs::write(notes_file, json).expect("Erro ao escrever no arquivo JSON");
+    fs::write(NOTES_JSON_FILE, json).expect("Erro ao escrever no arquivo JSON");
 }
 
 enum UserAction {
@@ -101,6 +98,7 @@ enum UserAction {
     Quit,
     Open,
     Delete,
+    ToggleKeybinds,
     None,
 }
 
@@ -113,6 +111,7 @@ fn handle_user_input() -> UserAction {
                 KeyCode::Char('q') | KeyCode::Esc => return UserAction::Quit,
                 KeyCode::Enter => return UserAction::Open,
                 KeyCode::Char('x') => return UserAction::Delete,
+                KeyCode::Char('?') => return UserAction::ToggleKeybinds,
                 _ => return UserAction::None,
             }
         }
@@ -120,11 +119,26 @@ fn handle_user_input() -> UserAction {
     UserAction::None
 }
 
+const KEYBINDS_TEXT: &str = "\
+    ↑/k: Mover para cima
+    ↓/j: Mover para baixo
+    Enter: Abrir nota
+    x: Deletar nota
+    ?: Mostrar teclas de atalho 
+    q/Esc: Sair";
+
 fn display_tui(mut notes: Vec<Note>) {
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut terminal = Terminal::new(backend).unwrap();
 
     let _ = crossterm::terminal::enable_raw_mode();
+    let mut show_keybinds = true;
+
+    let selected_style = Style::default()
+        .fg(tui::style::Color::LightMagenta)
+        .add_modifier(Modifier::BOLD);
+    let normal_style = Style::default().fg(tui::style::Color::White);
+    let keybinds_style = Style::default().fg(tui::style::Color::Black);
 
     terminal.clear().unwrap();
 
@@ -133,10 +147,15 @@ fn display_tui(mut notes: Vec<Note>) {
     loop {
         terminal
             .draw(|f| {
-                let chunks = Layout::default()
+                let main_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(80), Constraint::Percentage(20)].as_ref())
+                    .split(f.size());
+                let upper_chunks = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-                    .split(f.size());
+                    .split(main_chunks[0]);
+
                 let titles: Vec<ListItem> = notes
                     .iter()
                     .enumerate()
@@ -144,10 +163,9 @@ fn display_tui(mut notes: Vec<Note>) {
                         let title_with_date =
                             format!("{} - {}", note.title, note.date.format("%Y-%m-%d"));
                         if i == selected_index {
-                            ListItem::new(title_with_date)
-                                .style(Style::default().add_modifier(Modifier::BOLD))
+                            ListItem::new(title_with_date).style(selected_style)
                         } else {
-                            ListItem::new(title_with_date)
+                            ListItem::new(title_with_date).style(normal_style)
                         }
                     })
                     .collect();
@@ -158,8 +176,16 @@ fn display_tui(mut notes: Vec<Note>) {
                 let content = Paragraph::new(selected_content.as_str())
                     .block(Block::default().borders(Borders::ALL).title("Conteúdo"));
 
-                f.render_widget(list, chunks[0]);
-                f.render_widget(content, chunks[1]);
+                f.render_widget(list, upper_chunks[0]);
+                f.render_widget(content, upper_chunks[1]);
+                if show_keybinds {
+                    let keybinds = Paragraph::new(KEYBINDS_TEXT).style(keybinds_style).block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Teclas de Atalho"),
+                    );
+                    f.render_widget(keybinds, main_chunks[1]);
+                }
             })
             .unwrap();
 
@@ -189,7 +215,11 @@ fn display_tui(mut notes: Vec<Note>) {
                 if selected_index >= notes.len() && selected_index > 0 {
                     selected_index -= 1;
                 }
-                show_message(&mut terminal, "Nota deletada com sucesso!")
+                let success_style = Style::default().fg(tui::style::Color::Green);
+                show_message(&mut terminal, "Nota deletada com sucesso!", success_style);
+            }
+            UserAction::ToggleKeybinds => {
+                show_keybinds = !show_keybinds;
             }
             UserAction::None => {}
         }
@@ -213,12 +243,18 @@ fn list_notes() {
     }
 }
 
-fn show_message(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, message: &str) {
+fn show_message(
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+    message: &str,
+    style: Style,
+) {
     terminal.clear().unwrap();
     terminal
         .draw(|f| {
             let size = f.size();
-            let block = Paragraph::new(message).block(Block::default().borders(Borders::ALL));
+            let block = Paragraph::new(message)
+                .style(style)
+                .block(Block::default().borders(Borders::ALL));
             f.render_widget(block, size);
         })
         .unwrap();
