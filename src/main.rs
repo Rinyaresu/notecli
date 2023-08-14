@@ -6,16 +6,18 @@ use std::{fs, process::Command};
 use tui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Terminal,
 };
+use uuid::Uuid;
 
 const NOTES_DIR: &str = "notes";
 const NOTES_JSON_FILE: &str = "notes/notes.json";
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Note {
+    id: uuid::Uuid,
     title: String,
     content: String,
     date: DateTime<Utc>,
@@ -60,6 +62,7 @@ fn ensure_notes_directory_exists() {
 fn create_new_note(title: &str) {
     ensure_notes_directory_exists();
     let file_path = format!("notes/{}.md", title);
+    let note_id = Uuid::new_v4(); // Gera um novo UUID
     let editor = std::env::var("EDITOR").unwrap_or("vim".to_string());
     Command::new(editor)
         .arg(&file_path)
@@ -68,6 +71,7 @@ fn create_new_note(title: &str) {
 
     let content = fs::read_to_string(&file_path).expect("Erro ao ler o arquivo");
     let note = Note {
+        id: note_id,
         title: title.to_string(),
         content,
         date: Utc::now(),
@@ -264,11 +268,9 @@ fn show_message(
 fn delete_note(notes: &mut Vec<Note>, index: usize) {
     if index < notes.len() {
         let note = &notes[index];
-        // Remover o arquivo físico
-        let path = format!("notes/{}.md", note.title);
+        let path = format!("notes/{}.md", note.id);
         fs::remove_file(path).expect("Falha ao deletar o arquivo da nota");
 
-        // Remover a nota do vetor
         notes.remove(index);
 
         let notes_file = "notes/notes.json";

@@ -6,10 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tui = { package = "ratatui", version = "0.22.0", features = ["all-widgets"]}
+tui = { package = "ratatui", version = "0.22.0", features = ["all-widgets"] }
 crossterm = "0.26"
 clap = "2.33"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 prettytable-rs = "^0.10"
 chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.4.1", features = [
+  "v4",
+  "serde",
+  "fast-rng",
+  "macro-diagnostics",
+] }
